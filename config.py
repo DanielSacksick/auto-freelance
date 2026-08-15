@@ -121,7 +121,7 @@ class DraftingConfig:
     #: Le rédacteur choisit celle la plus proche du domaine de l'annonce.
     past_projects: List[Dict[str, str]] = field(default_factory=list)
     #: Modèle OpenRouter utilisé pour la rédaction.
-    model: str = "anthropic/claude-3.5-sonnet"
+    model: str = "deepseek/deepseek-v4-pro"
     temperature: float = 0.6
 
 

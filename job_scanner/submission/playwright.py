@@ -197,15 +197,28 @@ def _run_submission(page: Any, mapper: FormMapper, url: str, body: str,
             # Fallback JS click pour les SPA (Nuxt 3, React) où le bouton
             # est dans le DOM mais pas visible/interactable.
             try:
-                # Utilise le sélecteur CSS direct plutôt que le Locator
+                # Recherche par texte : :has-text() n'est pas du CSS pur,
+                # document.querySelector ne le supporte pas. On scanne les
+                # boutons et on clique celui dont le texte matche.
                 for sel in mapper.apply_button_selectors:
+                    # Extraire le texte recherché du sélecteur :has-text('X')
+                    import re as _re
+                    m = _re.search(r":has-text\('([^']+)'\)", sel)
+                    if not m:
+                        continue
+                    target = m.group(1)
                     clicked = page.evaluate(f"""
-                        (sel) => {{
-                            const el = document.querySelector(sel);
-                            if (el) {{ el.click(); return true; }}
+                        (txt) => {{
+                            const btns = document.querySelectorAll('button');
+                            for (const b of btns) {{
+                                if (b.textContent.trim().includes(txt)) {{
+                                    b.click();
+                                    return true;
+                                }}
+                            }}
                             return false;
                         }}
-                    """, sel)
+                    """, target)
                     if clicked:
                         break
                 _pause()
@@ -270,13 +283,23 @@ def _run_submission(page: Any, mapper: FormMapper, url: str, body: str,
         # Fallback JS click pour les SPA
         try:
             for sel in mapper.submit_button_selectors:
+                import re as _re
+                m = _re.search(r":has-text\('([^']+)'\)", sel)
+                if not m:
+                    continue
+                target = m.group(1)
                 clicked = page.evaluate(f"""
-                    (sel) => {{
-                        const el = document.querySelector(sel);
-                        if (el) {{ el.click(); return true; }}
+                    (txt) => {{
+                        const btns = document.querySelectorAll('button');
+                        for (const b of btns) {{
+                            if (b.textContent.trim().includes(txt)) {{
+                                b.click();
+                                return true;
+                            }}
+                        }}
                         return false;
                     }}
-                """, sel)
+                """, target)
                 if clicked:
                     break
         except Exception as exc2:

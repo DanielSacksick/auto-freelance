@@ -86,11 +86,9 @@ class FreeWorkForm(FormMapper):
         for selector in self.apply_button_selectors:
             locator = page.locator(selector).first
             try:
-                # Vérifie si l'élément existe dans le DOM via JS
-                exists = page.evaluate(
-                    f"(sel) => document.querySelector(sel) !== null", selector
-                )
-                if exists:
+                # count() gère les sélecteurs Playwright (:has-text) et
+                # retourne les éléments dans le DOM même invisibles.
+                if locator.count():
                     return locator
             except Exception:
                 continue

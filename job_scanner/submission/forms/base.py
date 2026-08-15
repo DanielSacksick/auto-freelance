@@ -160,15 +160,13 @@ class FormMapper(ABC):
         return False
 
     def find_submit_button(self, page: Any) -> Optional[Any]:
-        """Rend le premier bouton d'envoi visible, ou None.
-        Fallback : vérifie l'existence dans le DOM via JS pour les SPA."""
+        """Rend le premier bouton d'envoi trouvé dans le DOM, ou None.
+        Fallback : recherche par texte pour les boutons avec :has-text()"""
         for selector in self.submit_button_selectors:
             locator = page.locator(selector).first
             try:
-                exists = page.evaluate(
-                    f"(sel) => document.querySelector(sel) !== null", selector
-                )
-                if exists:
+                # count() gère les sélecteurs Playwright (:has-text)
+                if locator.count():
                     return locator
             except Exception:
                 continue
