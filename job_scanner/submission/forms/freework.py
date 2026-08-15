@@ -40,17 +40,27 @@ class FreeWorkForm(FormMapper):
     apply_button_selectors = (
         "button.btn--medium.btn--secondary:has-text('Postuler')",
         "button:has-text('Postuler')",
+        "button.btn--medium",  # Fallback générique si les classes changent
     )
-    # Le formulaire (modale) peut exposer un textarea de message et des
-    # champs CV. On déclare les plus probables puis on retombe sur l'intention.
+    # Le formulaire peut exposer un textarea de message avec les attributs
+    # name="job-application-message" et id="job-application-message".
+    # ATTENTION : NE PAS utiliser le flag CSS 'i' (case-insensitive) car
+    # document.querySelector() (utilisé dans base.py::fill_message) ne le
+    # supporte pas — utiliser des sélecteurs exacts ou "textarea" comme
+    # fallback générique.
     message_selectors = (
-        "textarea[name*='message' i], textarea[name*='cover' i], "
-        "textarea[name*='presentation' i], textarea[placeholder*='message' i], "
-        "textarea[placeholder*='motivation' i]",
+        "#job-application-message",
+        "textarea[name='job-application-message']",
+        "textarea[name*='message']",
+        "textarea[name*='cover']",
+        "textarea[name*='presentation']",
+        "textarea[placeholder*='message']",
+        "textarea[placeholder*='motivation']",
         "form textarea",
         "textarea",  # Fallback générique
     )
     submit_button_selectors = (
+        "button:has-text('Je postule')",
         "button[type='submit']:has-text('Postuler')",
         "button[type='submit']:has-text('Envoyer')",
         "button:has-text('Envoyer ma candidature')",
@@ -62,6 +72,7 @@ class FreeWorkForm(FormMapper):
         "candidature envoyée", "candidature bien envoyée",
         "candidature a bien été envoyée", "postulation envoyée",
         "merci, votre candidature", "candidature transmise",
+        "envoyé", "envoyée", "confirmation",
     )
 
     def prepare(self, page: Any) -> None:

@@ -144,11 +144,11 @@ class FormMapper(ABC):
                 if exists:
                     # JS fill pour les SPA
                     page.evaluate(f"""
-                        (sel, val) => {{
-                            const el = document.querySelector(sel);
-                            if (el) {{ el.value = val; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
+                        (args) => {{
+                            const el = document.querySelector(args.s);
+                            if (el) {{ el.value = args.v; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
                         }}
-                    """, selector, body)
+                    """, {"s": selector, "v": body})
                     return True
             except Exception:
                 continue
