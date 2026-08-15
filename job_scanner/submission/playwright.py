@@ -197,7 +197,17 @@ def _run_submission(page: Any, mapper: FormMapper, url: str, body: str,
             # Fallback JS click pour les SPA (Nuxt 3, React) où le bouton
             # est dans le DOM mais pas visible/interactable.
             try:
-                page.evaluate("(el) => el.click()", apply_button)
+                # Utilise le sélecteur CSS direct plutôt que le Locator
+                for sel in mapper.apply_button_selectors:
+                    clicked = page.evaluate(f"""
+                        (sel) => {{
+                            const el = document.querySelector(sel);
+                            if (el) {{ el.click(); return true; }}
+                            return false;
+                        }}
+                    """, sel)
+                    if clicked:
+                        break
                 _pause()
                 page.wait_for_timeout(1500)
                 logger.info("playwright: clic«postuler» via JS fallback")
@@ -259,7 +269,16 @@ def _run_submission(page: Any, mapper: FormMapper, url: str, body: str,
     except Exception as exc:
         # Fallback JS click pour les SPA
         try:
-            page.evaluate("(el) => el.click()", submit_button)
+            for sel in mapper.submit_button_selectors:
+                clicked = page.evaluate(f"""
+                    (sel) => {{
+                        const el = document.querySelector(sel);
+                        if (el) {{ el.click(); return true; }}
+                        return false;
+                    }}
+                """, sel)
+                if clicked:
+                    break
         except Exception as exc2:
             return SubmissionResult(
                 mode="error", submitted=False,

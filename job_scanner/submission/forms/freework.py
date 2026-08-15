@@ -48,6 +48,7 @@ class FreeWorkForm(FormMapper):
         "textarea[name*='presentation' i], textarea[placeholder*='message' i], "
         "textarea[placeholder*='motivation' i]",
         "form textarea",
+        "textarea",  # Fallback générique
     )
     submit_button_selectors = (
         "button[type='submit']:has-text('Postuler')",
@@ -85,10 +86,11 @@ class FreeWorkForm(FormMapper):
         for selector in self.apply_button_selectors:
             locator = page.locator(selector).first
             try:
-                if locator.count():
-                    if locator.is_visible():
-                        return locator
-                    # Visible mais pas visible → utiliser JS click
+                # Vérifie si l'élément existe dans le DOM via JS
+                exists = page.evaluate(
+                    f"(sel) => document.querySelector(sel) !== null", selector
+                )
+                if exists:
                     return locator
             except Exception:
                 continue

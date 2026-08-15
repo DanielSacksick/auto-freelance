@@ -133,12 +133,22 @@ class FormMapper(ABC):
         return _find_visible_by_text(page, "button", MESSAGE_HINTS, SUBMIT_HINTS)
 
     def fill_message(self, page: Any, body: str) -> bool:
-        """Remplit le champ message ; rend True si un champ a été rempli."""
+        """Remplit le champ message ; rend True si un champ a été rempli.
+        Fallback JS pour les SPA où le textarea est dans le DOM mais pas visible."""
         for selector in self.message_selectors:
             locator = page.locator(selector).first
             try:
-                if locator.count() and locator.is_visible():
-                    locator.fill(body)
+                exists = page.evaluate(
+                    f"(sel) => document.querySelector(sel) !== null", selector
+                )
+                if exists:
+                    # JS fill pour les SPA
+                    page.evaluate(f"""
+                        (sel, val) => {{
+                            const el = document.querySelector(sel);
+                            if (el) {{ el.value = val; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
+                        }}
+                    """, selector, body)
                     return True
             except Exception:
                 continue
@@ -150,11 +160,15 @@ class FormMapper(ABC):
         return False
 
     def find_submit_button(self, page: Any) -> Optional[Any]:
-        """Rend le premier bouton d'envoi visible, ou None."""
+        """Rend le premier bouton d'envoi visible, ou None.
+        Fallback : vérifie l'existence dans le DOM via JS pour les SPA."""
         for selector in self.submit_button_selectors:
             locator = page.locator(selector).first
             try:
-                if locator.count() and locator.is_visible():
+                exists = page.evaluate(
+                    f"(sel) => document.querySelector(sel) !== null", selector
+                )
+                if exists:
                     return locator
             except Exception:
                 continue
