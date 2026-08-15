@@ -36,15 +36,37 @@ Once `--dry-run` looks right, `python3 pipeline.py` runs the full pipeline.
 ## Session setup (needed for auto-submit)
 
 FreeWork, Freelance-Informatique and Freelancermap require you to be logged
-in to submit an application. That login is a one-time, manual step per
-platform — a real browser window opens, you log in yourself, and the session
-(cookies) is saved locally:
+in to submit an application. There are two ways to set up your session:
+
+### Method 1: Playwright export (recommended)
+
+A real browser window opens, you log in yourself, and the session is saved:
 
 ```bash
 python -m job_scanner.submission.playwright --export freework
 python -m job_scanner.submission.playwright --export freelance-informatique
 python -m job_scanner.submission.playwright --export freelancermap
 ```
+
+### Method 2: Cookie file import (alternative)
+
+Export your cookies from each platform using the Chrome extension
+**"Get cookies.txt"** (by Alexei Diaz, available on the Chrome Web Store):
+
+1. Install the extension from the Chrome Web Store
+2. Log in to each platform in your browser
+3. Click the extension icon → "Export" → save the `.txt` file
+   - FreeWork: `www.free-work.com_cookies.txt`
+   - Freelance-Informatique: `www.freelance-informatique.fr_cookies.txt`
+   - Freelancermap: `www.freelancermap.com_cookies.txt`
+4. Run the import script:
+
+```bash
+python3 scripts/import-cookies.py
+```
+
+This will convert the Netscape cookie files to Playwright storage state
+and save them to `~/.auto-freelance/sessions/`.
 
 Sessions are saved to `~/.auto-freelance/sessions/<platform>.json` by
 default (override with `AUTOFREELANCE_SESSION_DIR`) — outside the repo,
