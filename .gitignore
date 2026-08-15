@@ -1,0 +1,37 @@
+# .gitignore — auto-freelance
+
+# Personal configuration — real name, rate, skills, contacts. Never commit
+# this; config.example.yml is the versioned template.
+config.yml
+
+# Secrets: API keys / tokens. .env.example is the versioned template.
+.env
+
+# Local SQLite database (repo.py). Whatever the exact filename ends up being
+# (auto-freelance.db, jobs.sqlite3, ...), nothing that looks like a local DB
+# belongs in the repo — scanned/scored/applied offers are personal data.
+*.db
+*.db-journal
+*.sqlite3
+*.sqlite3-journal
+
+# Playwright session files (storage_state cookies) are secrets and should
+# never even be written inside the repo — they belong outside it, at
+# AUTOFREELANCE_SESSION_DIR (default ~/.auto-freelance/sessions). This entry
+# is defensive only, in case that variable ever gets misconfigured to a
+# repo-local path.
+*.session.json
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store

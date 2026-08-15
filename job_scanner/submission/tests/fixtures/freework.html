@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Développeur IA — Free-Work</title></head>
+<body>
+  <div id="__nuxt">
+    <header>
+      <a href="/fr/tech-it">Accueil</a>
+      <a href="/fr/login">Connexion</a>
+    </header>
+    <main>
+      <h1>Développeur Intelligence Artificielle</h1>
+      <p>ESENCA — Lille, Hauts-de-France</p>
+      <p class="rate">500-550 € / jour</p>
+      <p>Description de la mission…</p>
+      <!-- Le bouton Postuler : visible quand connecté -->
+      <button class="btn btn--medium btn--secondary" id="postuler-btn">Postuler</button>
+
+      <!-- Modal de candidature (cachée par défaut, affichée après clic) -->
+      <div id="apply-modal" style="display:none">
+        <form id="apply-form" method="post" action="/apply">
+          <label for="message">Message de candidature</label>
+          <textarea id="message" name="message" placeholder="Votre message"></textarea>
+
+          <label for="cv">CV (optionnel)</label>
+          <input type="file" id="cv" name="cv">
+
+          <button type="submit" id="submit-btn">Envoyer ma candidature</button>
+        </form>
+      </div>
+
+      <!-- Confirmation (cachée, affichée après soumission) -->
+      <div id="confirmation" style="display:none">
+        <p>Votre candidature a bien été envoyée</p>
+      </div>
+    </main>
+  </div>
+  <script>
+    document.getElementById('postuler-btn').addEventListener('click', function() {
+      document.getElementById('apply-modal').style.display = 'block';
+    });
+    document.getElementById('submit-btn').addEventListener('click', function(e) {
+      e.preventDefault();
+      document.getElementById('apply-modal').style.display = 'none';
+      document.getElementById('confirmation').style.display = 'block';
+    });
+  </script>
+</body>
+</html>

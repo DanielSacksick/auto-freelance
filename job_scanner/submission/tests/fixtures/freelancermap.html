@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>AI Solution Architect - Budapest</title></head>
+<body>
+  <header>
+    <nav>
+      <a href="/login" class="fm-btn fm-btn-secondary">Log in</a>
+      <a href="/registration" class="fm-btn fm-btn-primary">Sign up</a>
+    </nav>
+  </header>
+  <main>
+    <h1>AI Solution Architect - Budapest - 12 months</h1>
+    <p>Global Enterprise Partners</p>
+    <button class="fm-btn fm-btn-primary" id="apply-now">Apply now</button>
+
+    <!-- Modale de candidature (affichée après clic Apply now) -->
+    <div id="apply-modal" class="modal flm-modal" style="display:none" role="dialog">
+      <div class="modal-body">
+        <h3>Apply for this project</h3>
+        <form id="apply-form" method="post" action="/apply">
+          <label for="cover_letter">Cover letter / message</label>
+          <textarea id="cover_letter" name="cover_letter" placeholder="Your message to the company"></textarea>
+          <button type="submit" id="send-application">Send application</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Confirmation -->
+    <div id="confirmation" style="display:none">
+      <p>Your application has been sent</p>
+    </div>
+
+    <!-- Modale OneTrust (simulée, doit être fermée par prepare()) -->
+    <div id="onetrust-banner" style="display:block">
+      <button id="onetrust-accept-btn-handler">Accept all cookies</button>
+    </div>
+  </main>
+  <script>
+    document.getElementById('apply-now').addEventListener('click', function() {
+      document.getElementById('apply-modal').style.display = 'block';
+    });
+    document.getElementById('send-application').addEventListener('click', function(e) {
+      e.preventDefault();
+      document.getElementById('apply-modal').style.display = 'none';
+      document.getElementById('confirmation').style.display = 'block';
+    });
+  </script>
+</body>
+</html>

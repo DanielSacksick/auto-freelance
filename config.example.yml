@@ -1,0 +1,186 @@
+# config.example.yml — template for auto-freelance
+#
+# Copy this file to `config.yml` and edit it by hand, or run `python3 onboard.py`
+# for an interactive setup that generates `config.yml` for you.
+#
+# `config.yml` is personal data (rate, skills, contact info) and is listed in
+# .gitignore — never commit it. Only this example file is versioned.
+#
+# The example values below describe a fictional freelancer, "Alex Dupont",
+# used purely to show the shape of every field. Replace everything.
+
+# ---------------------------------------------------------------------------
+# profile — who you are, used in cover letters and application forms.
+# ---------------------------------------------------------------------------
+profile:
+  name: "Alex Dupont"
+  # Company / brand name, optional. Leave "" if you apply as an individual.
+  company: "Dupont Consulting"
+  email: "alex.dupont@example.com"
+  portfolio_url: "https://alexdupont.example.com"
+  linkedin_url: "https://www.linkedin.com/in/alexdupont-example"
+  github_url: "https://github.com/alexdupont-example"
+  # Path to your CV, used when a platform's application form allows a file
+  # upload. Relative paths are resolved from the repo root.
+  cv_path: "./cv/alex-dupont-cv.pdf"
+  # Default language for scanning/drafting: "fr" or "en". A given platform
+  # can override this under platforms.<name>.language (e.g. Upwork -> "en").
+  language: "fr"
+
+# ---------------------------------------------------------------------------
+# rates — your day rate (TJM), used to filter and score offers.
+# ---------------------------------------------------------------------------
+rates:
+  # Rate you're aiming for. Offers at or above this score higher.
+  target_daily_rate: 550
+  # Hard floor. Offers below this are scored down or filtered out entirely,
+  # depending on scoring rules.
+  floor_daily_rate: 400
+  currency: "EUR"
+
+# ---------------------------------------------------------------------------
+# skills — what the scorer looks for (and avoids) in an offer's text.
+# ---------------------------------------------------------------------------
+skills:
+  # {keyword: weight}. Weight is 0-1 and reflects how strong a signal the
+  # keyword is for a good match, not how well you master it. 1.0 = strongest
+  # possible positive signal.
+  core:
+    "Python": 1.0
+    "FastAPI": 0.8
+    "PostgreSQL": 0.7
+    "Docker": 0.6
+    "API REST": 0.6
+    "Terraform": 0.4
+  # {keyword: weight}. Signals a mission is out of scope for you (wrong stack,
+  # wrong industry, etc.). Weight is 0-1, higher = stronger exclusion signal.
+  exclusions:
+    "WordPress": 0.8
+    "PHP": 0.5
+    "COBOL": 1.0
+  # Short paragraph describing you. Used as a fallback profile summary in
+  # cover-letter prompts and, optionally, for semantic similarity scoring
+  # against an offer's description.
+  reference_text: >
+    Freelance backend developer with 8 years of experience building APIs and
+    data pipelines in Python. Comfortable working with PostgreSQL, Docker and
+    cloud infrastructure (AWS/GCP). Enjoys short, well-scoped missions with
+    clear deliverables.
+
+# ---------------------------------------------------------------------------
+# conditions — mission conditions you'll accept.
+# ---------------------------------------------------------------------------
+conditions:
+  # Remote setups you accept: "full" (100% remote), "partial" (hybrid),
+  # "onsite" (on client premises). Offers outside this list score down.
+  preferred_remote:
+    - "full"
+    - "partial"
+  # Missions longer than this (in months) score down — adjust to your
+  # appetite for long engagements vs. short gigs.
+  max_duration_months: 12
+
+# ---------------------------------------------------------------------------
+# platforms — which job boards to scan, and per-platform overrides.
+#
+# Known platform keys: freework, freelance-informatique, freelancermap,
+# upwork, linkedin.
+#
+# Only freework, freelance-informatique and freelancermap support automatic
+# Playwright submission today. Upwork and LinkedIn can be scanned, scored and
+# drafted, but applying stays manual (Upwork "Connects" are paid per
+# application; LinkedIn has no reliable form mapper).
+# ---------------------------------------------------------------------------
+platforms:
+  freework:
+    enabled: true
+  freelance-informatique:
+    enabled: true
+  freelancermap:
+    enabled: true
+  upwork:
+    # Disabled by default: Upwork charges paid "Connects" per application,
+    # so auto-scanning it has a real cost. Enable deliberately.
+    enabled: false
+    # Upwork pays in USD; override the EUR defaults above for this platform.
+    target_daily_rate: 600
+    floor_daily_rate: 450
+    currency: "USD"
+    language: "en"
+    # Cap on drafts/day for this platform, since each draft you act on may
+    # cost a Connect. Omit for no cap.
+    daily_quota: 5
+  linkedin:
+    # Disabled by default: no auto-submit support, scan-only, noisier signal.
+    enabled: false
+    language: "en"
+
+# ---------------------------------------------------------------------------
+# search — how offers are queried on each platform.
+# ---------------------------------------------------------------------------
+search:
+  # Keywords combined with OR by the search backend.
+  query: "python OR fastapi OR backend OR api"
+  # Skip offers advertising a daily rate below this, when the platform
+  # exposes one. Leave unset (or remove) to not filter on this.
+  min_daily_rate: 350
+  # How many result pages to fetch per platform per scan run.
+  max_pages: 2
+
+# ---------------------------------------------------------------------------
+# scoring — global threshold for deciding an offer is worth a cover letter.
+# ---------------------------------------------------------------------------
+scoring:
+  # 0-100. Offers scoring below this are logged but not drafted. Can be
+  # overridden per platform via platforms.<name>.min_score_for_draft.
+  min_score_for_draft: 60.0
+
+# ---------------------------------------------------------------------------
+# drafting — how cover letters get written.
+# ---------------------------------------------------------------------------
+drafting:
+  # Short bio injected into the cover-letter prompt.
+  bio: >
+    Alex Dupont, freelance backend developer, 8 years of experience with
+    Python and PostgreSQL. Based in Lyon, working remotely with clients
+    across Europe.
+  # Real (anonymized) past projects the LLM can reference when the offer's
+  # domain matches. Add as many as you like; irrelevant ones are ignored.
+  past_projects:
+    - domain: "fintech"
+      description: >
+        Built a payment reconciliation API processing 50k transactions/day
+        for a mid-size fintech, reducing manual reconciliation time by 80%.
+    - domain: "logistics"
+      description: >
+        Designed a route-optimization microservice for a logistics platform,
+        cutting average delivery time by 12%.
+  # OpenRouter model id used to draft cover letters. Requires OPENROUTER_API_KEY
+  # in your .env (see .env.example).
+  model: "anthropic/claude-3.5-sonnet"
+  # Sampling temperature for drafting, 0-1. Lower = more consistent/plain,
+  # higher = more varied phrasing.
+  temperature: 0.6
+
+# ---------------------------------------------------------------------------
+# submission — how Playwright submits applications.
+# ---------------------------------------------------------------------------
+submission:
+  # Run the browser headless (no visible window). Set to false while
+  # debugging a new platform's form mapper.
+  headless: true
+  # Where Playwright's per-platform login sessions (storage_state cookies)
+  # are stored, so you don't have to log in on every run.
+  session_dir: "~/.auto-freelance/sessions"
+
+# ---------------------------------------------------------------------------
+# notifications — how you're kept informed of scan/draft/submit results.
+# ---------------------------------------------------------------------------
+notifications:
+  # Print a summary to the console after each run.
+  console: true
+  telegram:
+    # If true, results are also sent to a Telegram chat. Requires
+    # TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in your .env — never store
+    # tokens in this file.
+    enabled: false

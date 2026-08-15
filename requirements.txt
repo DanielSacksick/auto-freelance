@@ -1,0 +1,32 @@
+# requirements.txt — auto-freelance
+#
+# Version floors, not exact pins: this is a template repo meant to be forked,
+# and pinning exact versions would just rot. Bump the floors if a newer
+# release breaks something for you.
+#
+# Verified against the actual top-level imports in job_scanner/ (see the
+# per-file `import`/`from` lines) rather than assumed:
+#   - config.py, onboard.py                          -> PyYAML
+#   - job_scanner/models.py                          -> pydantic
+#   - job_scanner/fetcher.py, sources/upwork_client.py,
+#     job_scanner/drafting/writer.py (OpenRouter calls) -> requests
+#   - job_scanner/sources/freelance_informatique.py,
+#     job_scanner/sources/freelancermap.py            -> beautifulsoup4 (+ lxml,
+#     the parser both call explicitly via BeautifulSoup(html, "lxml"))
+#   - job_scanner/submission/playwright.py, submission/forms/*  -> playwright
+#   - tests/, job_scanner/submission/tests/           -> pytest
+
+pydantic>=2
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5
+PyYAML>=6
+playwright>=1.40
+
+# Loads OPENROUTER_API_KEY / TELEGRAM_* / AUTOFREELANCE_* from .env —
+# pipeline.py calls load_dotenv() before importing config.py, so a filled-in
+# .env is picked up automatically for every entrypoint that goes through it.
+python-dotenv>=1.0
+
+# -- dev / test -------------------------------------------------------------
+pytest>=8

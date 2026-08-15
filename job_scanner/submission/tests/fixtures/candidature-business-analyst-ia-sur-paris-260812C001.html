@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Candidature — Freelance-Informatique</title></head>
+<body>
+  <header>
+    <a href="/">Accueil</a>
+    <a href="/connexion">Connexion</a>
+  </header>
+  <main>
+    <h1>Candidature — Business Analyst IA sur Paris</h1>
+    <p>Référence : 260812C001</p>
+
+    <!-- Formulaire de candidature, visible quand connecté -->
+    <form id="candidature-form" method="post" action="/candidature-260812C001">
+      <div class="form-row">
+        <label for="cand_message">Votre message</label>
+        <textarea id="cand_message" name="message" placeholder="Présentez-vous et expliquez votre motivation"></textarea>
+      </div>
+      <div class="form-row">
+        <label for="cand_dispo">Disponibilité</label>
+        <input type="text" id="cand_dispo" name="disponibilite" placeholder="Ex. : 1 semaine">
+      </div>
+      <div class="form-row">
+        <button type="submit" id="cand_submit">Envoyer ma candidature</button>
+      </div>
+    </form>
+
+    <!-- Confirmation -->
+    <div id="confirmation" style="display:none">
+      <p>Votre candidature a été envoyée</p>
+    </div>
+  </main>
+  <script>
+    document.getElementById('cand_submit').addEventListener('click', function(e) {
+      e.preventDefault();
+      document.getElementById('candidature-form').style.display = 'none';
+      document.getElementById('confirmation').style.display = 'block';
+    });
+  </script>
+</body>
+</html>
