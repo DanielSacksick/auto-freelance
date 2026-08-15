@@ -1,349 +1,342 @@
-"""linkedin.py — Source LinkedIn Jobs, via Jina Reader.
+"""
+linkedin.py — Source LinkedIn Jobs, via Playwright et une session authentifiée.
 
-LinkedIn Jobs est la plateforme la plus verrouillée du lot :
+LinkedIn Jobs est la plateforme la plus verrouillée du lot : pages rendues en
+JavaScript, `robots.txt` qui interdit `/jobs/*`, requêtes HTTP nues renvoyées
+vers une page de login ou un CAPTCHA. Il n'existe donc qu'un chemin fiable :
+ouvrir linkedin.com dans un vrai navigateur, avec une session authentifiée
+existante (cookies exportés, voir `job_scanner/submission/sessions.py`), et
+lire le DOM rendu — exactement la même approche que la soumission
+(`job_scanner/submission/playwright.py`), appliquée ici à la lecture plutôt
+qu'à l'envoi.
 
-- Les pages sont servies en JavaScript (React) : pas de HTML statique.
-- Le `robots.txt` interdit `/jobs/*` : pas de scrape autorisé.
-- Les requêtes HTTP pures reçoivent une page de login ou un CAPTCHA.
-- Jina Reader (r.jina.ai) bloque le domaine pour cause d'abus.
+Sans session exportée pour "linkedin" (`~/.auto-freelance/sessions/linkedin.json`),
+cette source ne scanne rien : elle le journalise et rend une liste vide plutôt
+que de tenter un accès non authentifié voué à un mur de connexion.
 
-Deux chemins existent, aucun n'est idéal :
+Rythme et discrétion : pause aléatoire entre chaque page et chaque fiche
+ouverte (même logique que la soumission — c'est le même compte qui est en
+jeu), user-agent desktop honnête, viewport réaliste. Détection de mur de
+connexion (session expirée) et de CAPTCHA : le scan s'arrête proprement plutôt
+que d'insister.
 
-1. **Playwright headless** — ouvre linkedin.com, utilise une session
-   authentifiée existante (cookies du profil), lit le DOM rendu.
-   Risque : LinkedIn détecte les navigateurs headless et peut restreindre
-   le compte.
-
-2. **Google Jobs** — Google agrège les offres LinkedIn + Indeed + Welcome to
-   the Jungle dans son widget Jobs, accessible via Jina Reader.
-   Compromis acceptable : moins d'offres, mais zéro risque compte.
-
-Ce module implémente le chemin 2 (Google Jobs) comme source principale,
-et laisse un placeholder pour Playwright quand il sera configuré.
-
-Pour activer LinkedIn plus tard :
-    1. Configurer Playwright : pip install playwright && playwright install chromium
-    2. Exporter les cookies LinkedIn dans un fichier (linkedin_cookies.json)
-    3. Décommenter le code Playwright ci-dessous
+Les sélecteurs DOM ci-dessous reflètent la structure observée sur LinkedIn
+Jobs ; comme toute plateforme non documentée, ils peuvent dériver dans le
+temps et méritent d'être revalidés après un premier run réel.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import random
 import re
-from datetime import datetime
+import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import urlencode
 
 from job_scanner.models import RawOffer
 from job_scanner.sources.base import Fetcher, OfferSource, SearchCriteria
+from job_scanner.submission import sessions
 
 logger = logging.getLogger(__name__)
 
-# Google Jobs URL — agrège LinkedIn + Indeed + Welcome to the Jungle
-GOOGLE_JOBS_URL = "https://www.google.com/search"
+BASE_URL = "https://www.linkedin.com"
+SEARCH_PATH = "/jobs/search/"
 
-# On utilise le paramètre `udm=8` qui active le mode Jobs de Google
 DEFAULT_QUERY = "(freelance OR contract) (\"AI agent\" OR LLM OR Claude OR RAG OR MCP)"
 
-# Regex pour extraire les offres d'une page Google Jobs
-# Le format Google Jobs en mode texte (via Jina Reader) varie beaucoup.
-# On cherche des patterns basiques : titres, entreprises, lieux.
-_JOB_TITLE_RE = re.compile(r"^(\d+\.?)\s*(.+?)(?:\s*–\s*|\s*-\s*)(.+?)(?:\s*•\s*|\s*['']\s*)(.+)$", re.MULTILINE)
+# Pause humaine entre deux pages de résultats — même logique que
+# job_scanner/submission/playwright.py : on lit un compte authentifié, pas
+# une API publique.
+MIN_PAUSE, MAX_PAUSE = 1.5, 3.5
 
-# Fallback : détection de blocs d'offres dans le markdown
-_OFFER_BLOCK_RE = re.compile(
-    r"(?:^|\n)(\d+)\.\s+\[([^\]]+)\]\(([^)]+)\)\s*(?:\n|$)",
-    re.MULTILINE,
+# Pause plus courte entre deux clics sur des fiches, dans la même page.
+MIN_CARD_PAUSE, MAX_CARD_PAUSE = 0.6, 1.6
+
+# Nombre de fiches dont on va chercher la description complète par page —
+# ouvrir chaque fiche a un coût en temps et en risque de détection ; on le
+# borne plutôt que de le faire pour toutes les offres d'une page.
+MAX_DESCRIPTIONS_PER_PAGE = 10
+
+# Une page pleine compte ce nombre de cartes ; une page plus courte est la
+# dernière (mêmes conventions que freework.py / freelancermap.py).
+RESULTS_PER_PAGE = 25
+
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+VIEWPORT = {"width": 1360, "height": 900}
+
+CARD_SELECTOR = "li[data-occludable-job-id]"
+TITLE_SELECTORS = (
+    "a.job-card-list__title", "a.job-card-container__link",
+    ".job-card-list__title", "[class*='job-card-list__title']",
+)
+COMPANY_SELECTORS = (
+    ".job-card-container__primary-description",
+    ".job-card-container__company-name",
+    "[class*='job-card-container__company-name']",
+)
+LOCATION_SELECTORS = (
+    ".job-card-container__metadata-item",
+    "[class*='job-card-container__metadata']",
+)
+DETAIL_SELECTORS = (
+    ".jobs-search__job-details--container",
+    ".jobs-details__main-content",
+    "#job-details",
 )
 
-# Extraction d'entreprise et lieu depuis les lignes
-_COMPANY_LOCATION_RE = re.compile(
-    r"(?:·|•)\s*([^·•]+?)\s*(?:·|•)\s*([^·•]+)",
-)
+LOGIN_URL_MARKERS = ("/login", "/authwall", "/checkpoint", "linkedin.com/uas/")
+
+_WS_RE = re.compile(r"\s+")
+
+
+def _pause(min_s: float = MIN_PAUSE, max_s: float = MAX_PAUSE) -> None:
+    """Pause courte et aléatoire : rythme humain, pas de rafale de requêtes."""
+    time.sleep(random.uniform(min_s, max_s))
+
+
+def _clean(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    cleaned = _WS_RE.sub(" ", text).strip()
+    return cleaned or None
 
 
 class LinkedInJobsSource(OfferSource):
-    """Lit les offres freelance publiées sur LinkedIn Jobs (via Google Jobs).
-
-    Contournement : Google Jobs agrège les offres LinkedIn, Indeed, Welcome to
-    the Jungle, etc. dans un widget accessible sans authentification. Jina Reader
-    (r.jina.ai) peut le lire tant que le trafic reste modéré.
-
-    Limites connues :
-    - Google limite à ~20 résultats par requête
-    - Certaines offres sont dupliquées entre agrégateurs
-    - Les TJM sont rarement publiés
-    """
+    """Lit les offres freelance publiées sur LinkedIn Jobs, via Playwright."""
 
     key = "linkedin"
 
     def __init__(
         self,
         fetcher: Optional[Fetcher] = None,
-        base_url: str = GOOGLE_JOBS_URL,
-        country: str = "France",
+        session_dir: Optional[Any] = None,
+        headless: bool = True,
+        base_url: str = BASE_URL,
     ):
         """
         Args:
-            fetcher: injecté pour la compatibilité ; ignoré car on passe par
-                Jina Reader directement.
-            base_url: URL de recherche Google Jobs.
-            country: pays cible pour le filtre de localisation.
+            fetcher: ignoré — cette source pilote son propre navigateur plutôt
+                que de passer par le `Fetcher` HTTP commun (session
+                authentifiée requise, cf. docstring du module).
+            session_dir: répertoire des sessions exportées (défaut
+                ~/.auto-freelance/sessions, voir `submission/sessions.py`).
+            headless: navigateur invisible (True par défaut — cron/tests).
+            base_url: URL de base LinkedIn.
         """
         self._fetcher = fetcher
+        self._session_dir = session_dir
+        self._headless = headless
         self._base_url = base_url.rstrip("/")
-        self._country = country
 
-    # -- API publique ----------------------------------------------------
+    # -- API publique ------------------------------------------------------
 
     def fetch(self, criteria: SearchCriteria) -> List[RawOffer]:
-        """Interroge Google Jobs via Jina Reader ; rend les offres trouvées."""
+        if not sessions.has_session(self.key, self._session_dir):
+            logger.info(
+                "linkedin: aucune session exportée — scan ignoré. Exporte-la : "
+                "python -m job_scanner.submission.playwright --export linkedin"
+            )
+            return []
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            logger.warning("linkedin: Playwright n'est pas installé dans ce venv")
+            return []
+
+        offers: List[RawOffer] = []
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=self._headless)
+            try:
+                state = sessions.load_storage_state(self.key, self._session_dir)
+                context = browser.new_context(
+                    storage_state=state,
+                    user_agent=USER_AGENT,
+                    viewport=VIEWPORT,
+                    locale=criteria.extra.get("locale", "fr-FR"),
+                )
+                page = context.new_page()
+                offers = self._scan(page, criteria)
+            except Exception as exc:
+                logger.warning("linkedin: scan interrompu (%s)", exc)
+            finally:
+                browser.close()
+
+        logger.info("linkedin: %d offre(s) trouvée(s)", len(offers))
+        return offers
+
+    # -- Parcours ------------------------------------------------------------
+
+    def _scan(self, page: Any, criteria: SearchCriteria) -> List[RawOffer]:
         offers: List[RawOffer] = []
         seen: set = set()
 
+        for page_index in range(max(1, criteria.max_pages)):
+            url = self._build_search_url(criteria, page_index)
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            _pause()
+
+            if self._on_login_wall(page):
+                logger.warning("linkedin: session expirée ou invalide — scan interrompu")
+                break
+            if self._captcha_present(page):
+                logger.warning(
+                    "linkedin: CAPTCHA détecté — scan interrompu pour ne pas risquer le compte"
+                )
+                break
+
+            cards = self._read_cards(page)
+            if not cards:
+                break
+
+            described = 0
+            for card in cards:
+                if card["external_id"] in seen:
+                    continue
+                seen.add(card["external_id"])
+
+                if described < MAX_DESCRIPTIONS_PER_PAGE:
+                    card["description"] = self._read_description(page, card["locator"])
+                    described += 1
+                    _pause(MIN_CARD_PAUSE, MAX_CARD_PAUSE)
+
+                offer = self._to_offer(card)
+                if offer is not None:
+                    offers.append(offer)
+
+            if len(cards) < RESULTS_PER_PAGE:
+                break
+
+        return offers
+
+    def _build_search_url(self, criteria: SearchCriteria, page_index: int) -> str:
         query = criteria.query or DEFAULT_QUERY
-        location = criteria.extra.get("location", self._country)
+        location = criteria.extra.get("location", "France")
+        params: Dict[str, Any] = {"keywords": query, "location": location}
+        if page_index > 0:
+            params["start"] = page_index * RESULTS_PER_PAGE
+        return f"{self._base_url}{SEARCH_PATH}?{urlencode(params)}"
 
-        for page in range(1, max(1, criteria.max_pages) + 1):
-            url = self._build_url(query, location, page)
-            html = self._fetch_via_jina(url)
-            if not html:
-                logger.info("linkedin: aucune donnée récupérée depuis Google Jobs")
-                break
+    # -- Détections de mur ----------------------------------------------------
 
-            parsed = self._parse_page(html, url)
-            for offer in parsed:
-                if offer.external_id in seen:
-                    continue
-                seen.add(offer.external_id)
-                offers.append(offer)
-
-            # Une page sans résultats est la dernière
-            if len(parsed) < 10:
-                break
-
-        logger.info("linkedin: %d offres trouvées via Google Jobs", len(offers))
-        return offers
-
-    # -- Récupération ----------------------------------------------------
-
-    def _build_url(self, query: str, location: str, page: int) -> str:
-        """Construit l'URL de recherche Google Jobs."""
-        full_query = f"{query} freelance {location}"
-        params: Dict[str, Any] = {
-            "q": full_query,
-            "udm": "8",           # mode Jobs
-            "ibp": "htl;jobs",    # mode emploi
-        }
-        if page > 1:
-            params["start"] = (page - 1) * 10
-        return f"{self._base_url}?{urlencode(params, safe=':,')}"
-
-    def _fetch_via_jina(self, url: str) -> Optional[str]:
-        """Récupère une page via Jina Reader (r.jina.ai)."""
-        import urllib.request
-
-        jina_url = f"https://r.jina.ai/{url}"
-        req = urllib.request.Request(
-            jina_url,
-            headers={
-                "Accept": "text/plain",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            },
-        )
+    def _on_login_wall(self, page: Any) -> bool:
+        """Session expirée ou absente : LinkedIn a renvoyé vers une connexion."""
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                content = resp.read().decode("utf-8", errors="replace")
-        except Exception as exc:
-            logger.warning("linkedin: Jina Reader inaccessible pour %s (%s)", url[:60], exc)
-            return None
+            url = (page.url or "").lower()
+        except Exception:
+            return False
+        if any(marker in url for marker in LOGIN_URL_MARKERS):
+            return True
+        try:
+            return page.locator("input[type='password']").count() > 0
+        except Exception:
+            return False
 
-        # Vérifier que Jina n'a pas bloqué
-        if not content or "blocked" in content[:200].lower() or "forbidden" in content[:200].lower():
-            logger.warning("linkedin: Jina Reader a bloqué l'accès à Google Jobs")
-            return None
+    def _captcha_present(self, page: Any) -> bool:
+        from job_scanner.submission.forms.base import CAPTCHA_HINTS, matches_hint
 
-        return content
-
-    # -- Parsing ---------------------------------------------------------
-
-    def _parse_page(self, html: str, source_url: str) -> List[RawOffer]:
-        """Extrait les offres du markdown rendu par Jina Reader.
-
-        Le format Google Jobs via Jina Reader varie énormément selon la
-        localisation et le jour. On tente plusieurs stratégies de parsing.
-        """
-        offers: List[RawOffer] = []
-        lines = html.split("\n")
-        titles_seen: set = set()
-
-        # Stratégie 1 : chercher des patterns titre + description
-        i = 0
-        while i < len(lines) and len(offers) < 30:
-            line = lines[i].strip()
-
-            # Chercher les lignes qui ressemblent à des titres d'offres
-            # (format Google Jobs markdown : liens numérotés ou titres en gras)
-            title_match = re.match(r"^(\d+)\.\s+\*\*(.+?)\*\*", line)
-
-            # Chercher aussi les lignes avec [titre](url)
-            if not title_match:
-                # Format: [Titre du poste](url)
-                link_match = re.match(r"^\d+\.\s*\[([^\]]+)\]\(([^)]+)\)", line)
-                if link_match:
-                    title = link_match.group(1)
-                    url = link_match.group(2)
-                else:
-                    i += 1
-                    continue
-            else:
-                title = title_match.group(2)
-                url = source_url
-
-            # Nettoyer le titre
-            title = re.sub(r"\s+", " ", title).strip()
-            if not title or len(title) < 5 or title.lower().startswith("about this"):
-                i += 1
-                continue
-
-            if title in titles_seen:
-                i += 1
-                continue
-            titles_seen.add(title)
-
-            # Lire les lignes suivantes pour trouver entreprise/lieu/description
-            company = None
-            location = None
-            description_lines: List[str] = []
-            j = i + 1
-
-            while j < len(lines) and j < i + 12:
-                next_line = lines[j].strip()
-                if not next_line:
-                    j += 1
-                    continue
-
-                # Détection entreprise (souvent juste après le titre)
-                if company is None and re.match(r"^[A-Z][a-zA-Z0-9\s\-\.]{2,40}$", next_line) and len(next_line) < 80:
-                    # Vérifier que ça ressemble à une entreprise (pas un gabarit)
-                    if not any(kw in next_line.lower() for kw in ["about", "page", "source", "url", "http"]):
-                        if not next_line.startswith("(") and not next_line.endswith(")"):
-                            company = next_line
-                            j += 1
-                            continue
-
-                # Détection lieu (souvent après l'entreprise)
-                if location is None and company and re.match(r"^[A-Z][a-zA-Z\s\-]{2,}$", next_line) and len(next_line) < 60:
-                    location = next_line
-                    j += 1
-                    continue
-
-                # Accumuler la description
-                if len(next_line) > 40 and not next_line.startswith("http"):
-                    description_lines.append(next_line)
-                    if len(description_lines) >= 3:
-                        break
-
-                j += 1
-
-            description = " ".join(description_lines) if description_lines else None
-            external_id = self._make_id(title, company or "linkedin")
-
-            try:
-                offer = RawOffer(
-                    source=self.key,
-                    external_id=external_id,
-                    url=url,
-                    title=title[:300],
-                    company=company[:200] if company else None,
-                    description=description[:2000] if description else None,
-                    published_at=datetime.now(),  # Google Jobs ne donne pas la date
-                    daily_rate_min=None,  # rarement publié
-                    daily_rate_max=None,
-                    currency="EUR",
-                    location=location[:100] if location else "France",
-                    contract_type="contractor",
-                    raw={"source_url": source_url, "matched_via": "google_jobs"},
-                )
-                offers.append(offer)
-            except Exception as exc:
-                logger.debug("linkedin: offre ignorée (%s)", exc)
-
-            i = j
-
-        # Stratégie 2 : si rien trouvé avec la stratégie 1, chercher des patterns
-        # plus larges dans tout le texte
-        if not offers:
-            offers = self._fallback_parse(html, source_url)
-
-        return offers
-
-    def _fallback_parse(self, html: str, source_url: str) -> List[RawOffer]:
-        """Parsing de fallback — recherche les URLs d'offres dans le texte."""
-        offers: List[RawOffer] = []
-        seen_urls: set = set()
-
-        # Chercher les URLs LinkedIn ou Indeed
-        for match in re.finditer(
-            r'(https?://(?:www\.)?linkedin\.com/jobs/view/[^\s)"\']+|https?://(?:www\.)?indeed\.fr[^\s)"\']+)',
-            html,
+        for frame_selector in (
+            "iframe[src*='captcha']", "iframe[src*='recaptcha']", "iframe[src*='hcaptcha']",
         ):
-            url = match.group(1).rstrip(".,;")
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-
-            # Essayer d'extraire un titre du contexte
-            start = max(0, match.start() - 200)
-            context = html[start:match.start()]
-            title_match = re.search(r'\*\*(.+?)\*\*', context)
-
-            external_id = self._make_id(url, "linkedin")
             try:
-                offer = RawOffer(
-                    source=self.key,
-                    external_id=external_id,
-                    url=url,
-                    title=title_match.group(1)[:300] if title_match else "Offre LinkedIn",
-                    description=None,
-                    published_at=datetime.now(),
-                    daily_rate_min=None,
-                    daily_rate_max=None,
-                    currency="EUR",
-                    contract_type="contractor",
-                    raw={"source_url": source_url, "matched_via": "fallback"},
-                )
-                offers.append(offer)
+                if page.locator(frame_selector).count() > 0:
+                    return True
             except Exception:
                 continue
+        try:
+            body = (page.inner_text("body") or "")[:4000]
+        except Exception:
+            return False
+        return matches_hint(body, CAPTCHA_HINTS)
 
-        return offers
+    # -- Parsing ---------------------------------------------------------------
 
-    # -- Utilitaires -----------------------------------------------------
+    def _read_cards(self, page: Any) -> List[Dict[str, Any]]:
+        cards: List[Dict[str, Any]] = []
+        locator = page.locator(CARD_SELECTOR)
+        try:
+            count = locator.count()
+        except Exception:
+            return cards
+
+        for i in range(count):
+            info = self._extract_card(locator.nth(i))
+            if info is not None:
+                cards.append(info)
+        return cards
+
+    def _extract_card(self, card: Any) -> Optional[Dict[str, Any]]:
+        try:
+            job_id = card.get_attribute("data-occludable-job-id")
+            if not job_id:
+                return None
+
+            title = self._first_text(card, TITLE_SELECTORS)
+            if not title:
+                return None
+
+            return {
+                "locator": card,
+                "external_id": job_id,
+                "title": title[:300],
+                "company": (self._first_text(card, COMPANY_SELECTORS) or "")[:200] or None,
+                "location": (self._first_text(card, LOCATION_SELECTORS) or "")[:100] or None,
+                "url": f"{self._base_url}/jobs/view/{job_id}/",
+            }
+        except Exception as exc:
+            logger.debug("linkedin: fiche ignorée (%s)", exc)
+            return None
 
     @staticmethod
-    def _make_id(title: str, context: str) -> str:
-        """Génère un identifiant stable à partir du titre."""
-        import hashlib
-        raw = f"{title.strip().lower()}:{context.strip().lower()}"
-        return hashlib.md5(raw.encode()).hexdigest()[:16]
+    def _first_text(card: Any, selectors: tuple) -> Optional[str]:
+        for selector in selectors:
+            try:
+                element = card.locator(selector).first
+                if element.count():
+                    text = _clean(element.inner_text())
+                    if text:
+                        return text
+            except Exception:
+                continue
+        return None
 
+    def _read_description(self, page: Any, card: Any) -> Optional[str]:
+        """Ouvre une fiche (clic dans la liste, pas de navigation) et lit le
+        panneau de détail. Un échec n'est pas fatal : l'offre reste sans
+        description plutôt que d'interrompre le scan."""
+        try:
+            card.click(timeout=8000)
+            page.wait_for_timeout(1200)
+            for selector in DETAIL_SELECTORS:
+                panel = page.locator(selector).first
+                if panel.count():
+                    text = _clean(panel.inner_text())
+                    if text:
+                        return text[:2000]
+        except Exception as exc:
+            logger.debug("linkedin: description illisible (%s)", exc)
+        return None
 
-# Placeholder pour la version Playwright — à décommenter quand Playwright
-# sera configuré avec une session LinkedIn authentifiée.
-#
-# class LinkedInPlaywrightSource(OfferSource):
-#     """Version Playwright : ouvre LinkedIn Jobs dans un navigateur headless
-#     avec une session authentifiée. Plus fiable mais plus risqué."""
-#
-#     key = "linkedin"
-#
-#     def fetch(self, criteria: SearchCriteria) -> List[RawOffer]:
-#         raise NotImplementedError(
-#             "LinkedIn Playwright n'est pas encore activé. "
-#             "Configure les cookies LinkedIn dans linkedin_cookies.json "
-#             "et installe Playwright : pip install playwright && playwright install chromium"
-#         )
+    # -- Traduction vers le modèle pivot ---------------------------------------
+
+    def _to_offer(self, card: Dict[str, Any]) -> Optional[RawOffer]:
+        try:
+            return RawOffer(
+                source=self.key,
+                external_id=card["external_id"],
+                url=card["url"],
+                title=card["title"],
+                company=card.get("company"),
+                description=card.get("description"),
+                currency="EUR",
+                location=card.get("location"),
+                contract_type="contractor",
+                raw={"scanned_via": "playwright"},
+            )
+        except Exception as exc:
+            logger.warning("linkedin: offre %s ignorée (%s)", card.get("external_id"), exc)
+            return None

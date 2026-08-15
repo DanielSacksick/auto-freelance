@@ -72,8 +72,10 @@ def _build_sources(config: AppConfig, fetcher: Fetcher) -> List[OfferSource]:
         )
 
     if "linkedin" in enabled:
-        # LinkedInJobsSource ne consomme pas le fetcher commun : elle passe par
-        # Jina Reader en interne (voir job_scanner/sources/linkedin.py).
+        # LinkedInJobsSource ne consomme pas le fetcher commun : elle pilote son
+        # propre navigateur Playwright avec une session authentifiée (voir
+        # job_scanner/sources/linkedin.py). Sans session exportée pour
+        # "linkedin", elle se journalise et rend une liste vide.
         sources.append(LinkedInJobsSource())
 
     if "upwork" in enabled:

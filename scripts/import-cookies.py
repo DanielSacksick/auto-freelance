@@ -44,6 +44,7 @@ COOKIE_FILES = {
     "freework": "*free-work.com*cookies.txt",
     "freelance-informatique": "*freelance-informatique*cookies.txt",
     "freelancermap": "*freelancermap*cookies.txt",
+    "linkedin": "*linkedin.com*cookies.txt",
 }
 
 async def main():

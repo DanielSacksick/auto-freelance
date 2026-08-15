@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>AI Agent Engineer - Remote</title></head>
+<body>
+  <div id="consent-banner" style="display:block">
+    <button id="accept-cookies">Accept</button>
+  </div>
+  <main>
+    <h1>AI Agent Engineer</h1>
+    <p>Acme Corp</p>
+    <button class="jobs-apply-button" id="easy-apply-btn">Easy Apply</button>
+
+    <!-- Modale Easy Apply : les 3 étapes sont montées en même temps, une
+         seule visible à la fois — reproduit le cas où le bouton final reste
+         dans le DOM avant que l'étape finale ne soit réellement atteinte. -->
+    <div class="jobs-easy-apply-modal" id="easy-apply-modal" style="display:none" role="dialog">
+      <form id="easy-apply-form">
+        <div id="step-1" class="step">
+          <label for="phoneNumber">Mobile phone number</label>
+          <input type="tel" id="phoneNumber" name="phoneNumber" required>
+          <button type="button" id="next-1">Next</button>
+        </div>
+        <div id="step-2" class="step" style="display:none">
+          <label for="message-to-hiring-manager">Message to hiring manager (optional)</label>
+          <textarea id="message-to-hiring-manager" name="message"></textarea>
+          <button type="button" id="next-2">Review</button>
+        </div>
+        <div id="step-3" class="step" style="display:none">
+          <p>Review your application</p>
+          <button type="button" id="submit-application" aria-label="Submit application">Submit application</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="confirmation" style="display:none">
+      <p>Your application was sent to Acme Corp</p>
+    </div>
+  </main>
+  <script>
+    document.getElementById('accept-cookies').addEventListener('click', function () {
+      document.getElementById('consent-banner').style.display = 'none';
+    });
+    document.getElementById('easy-apply-btn').addEventListener('click', function () {
+      document.getElementById('easy-apply-modal').style.display = 'block';
+    });
+    document.getElementById('next-1').addEventListener('click', function () {
+      if (!document.getElementById('phoneNumber').value) { return; }
+      document.getElementById('step-1').style.display = 'none';
+      document.getElementById('step-2').style.display = 'block';
+    });
+    document.getElementById('next-2').addEventListener('click', function () {
+      document.getElementById('step-2').style.display = 'none';
+      document.getElementById('step-3').style.display = 'block';
+    });
+    document.getElementById('submit-application').addEventListener('click', function () {
+      document.getElementById('easy-apply-modal').style.display = 'none';
+      document.getElementById('confirmation').style.display = 'block';
+    });
+  </script>
+</body>
+</html>

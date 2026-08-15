@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path(os.environ.get("AUTOFREELANCE_CONFIG", "config.yml"))
 
 # Plateformes de scan connues. `sources` (scan) et `submission` (candidature
-# automatique) n'ont pas la même couverture : Upwork et LinkedIn se scannent
-# mais ne se soumettent pas automatiquement (Connects payants / pas de mapping
-# de formulaire), voir job_scanner/submission/forms/__init__.py.
+# automatique) n'ont pas la même couverture : Upwork se scanne mais ne se
+# soumet pas automatiquement (Connects payants), voir
+# job_scanner/submission/forms/__init__.py.
 KNOWN_PLATFORMS = (
     "freework",
     "freelance-informatique",
@@ -39,8 +39,11 @@ KNOWN_PLATFORMS = (
 )
 
 # Plateformes pour lesquelles un FormMapper Playwright existe : seules celles-ci
-# peuvent être soumises automatiquement, quelle que soit la config.
-AUTO_SUBMIT_PLATFORMS = ("freework", "freelance-informatique", "freelancermap")
+# peuvent être soumises automatiquement, quelle que soit la config. LinkedIn
+# n'auto-soumet que l'Easy Apply (pas le bouton "Apply" externe) et abandonne
+# proprement dès qu'une question de sélection ne peut pas être répondue sans
+# inventer une réponse (voir job_scanner/submission/forms/linkedin.py).
+AUTO_SUBMIT_PLATFORMS = ("freework", "freelance-informatique", "freelancermap", "linkedin")
 
 
 class ConfigError(RuntimeError):

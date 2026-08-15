@@ -4,9 +4,9 @@ tests/test_submit.py — platform-gating logic for submit.py.
 submit.py is expected to expose `submit_offers(drafted, config, dry_run=False)`
 and only attempt a real Playwright submission for offers whose platform is in
 `config.AUTO_SUBMIT_PLATFORMS` (freework, freelance-informatique,
-freelancermap — the only platforms with a `FormMapper`). Everything else
-(upwork, linkedin) should come back with a manual/`None` submission marker
-and must never reach `job_scanner.submission.playwright.submit()`.
+freelancermap, linkedin — the platforms with a `FormMapper`). Everything else
+(upwork) should come back with a manual/`None` submission marker and must
+never reach `job_scanner.submission.playwright.submit()`.
 
 As of this writing submit.py has not landed yet (only onboard.py,
 config.example.yml, .env.example, config.py, scan.py, score.py, draft.py,
@@ -113,7 +113,7 @@ def test_mixed_batch_only_calls_submit_for_gated_platforms(app_config, fake_subm
     results = submit_offers(drafted, app_config, dry_run=False)
 
     called_sources = {call["source"] for call in fake_submit}
-    assert called_sources == {"freework", "freelance-informatique"}
+    assert called_sources == {"freework", "freelance-informatique", "linkedin"}
     assert len(results) == 4
 
 

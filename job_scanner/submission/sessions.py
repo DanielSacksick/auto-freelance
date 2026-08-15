@@ -47,6 +47,7 @@ SOURCE_DOMAINS = {
     "freework": "free-work.com",
     "freelance-informatique": "freelance-informatique.fr",
     "freelancermap": "freelancermap.com",
+    "linkedin": "linkedin.com",
 }
 
 

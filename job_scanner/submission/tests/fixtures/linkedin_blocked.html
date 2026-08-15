@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Senior Backend Engineer - Remote</title></head>
+<body>
+  <main>
+    <h1>Senior Backend Engineer</h1>
+    <p>Beta Industries</p>
+    <button class="jobs-apply-button" id="easy-apply-btn">Easy Apply</button>
+
+    <!-- Étape 1 combine un champ connu (téléphone) et une question de
+         sélection que le mapper ne doit jamais deviner : la candidature
+         doit s'arrêter ici, sans jamais cliquer Next ni Submit. -->
+    <div class="jobs-easy-apply-modal" id="easy-apply-modal" style="display:none" role="dialog">
+      <form id="easy-apply-form">
+        <div id="step-1" class="step">
+          <label for="phoneNumber">Mobile phone number</label>
+          <input type="tel" id="phoneNumber" name="phoneNumber" required>
+
+          <fieldset>
+            <legend>Do you have 5+ years of commercial Python experience?</legend>
+            <label><input type="radio" name="pythonExperience" value="yes" required> Yes</label>
+            <label><input type="radio" name="pythonExperience" value="no" required> No</label>
+          </fieldset>
+
+          <button type="button" id="next-1">Next</button>
+        </div>
+        <div id="step-2" class="step" style="display:none">
+          <p>Review your application</p>
+          <button type="button" id="submit-application" aria-label="Submit application">Submit application</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="confirmation" style="display:none">
+      <p>Your application was sent to Beta Industries</p>
+    </div>
+  </main>
+  <script>
+    document.getElementById('easy-apply-btn').addEventListener('click', function () {
+      document.getElementById('easy-apply-modal').style.display = 'block';
+    });
+    document.getElementById('next-1').addEventListener('click', function () {
+      document.getElementById('step-1').style.display = 'none';
+      document.getElementById('step-2').style.display = 'block';
+    });
+    document.getElementById('submit-application').addEventListener('click', function () {
+      document.getElementById('easy-apply-modal').style.display = 'none';
+      document.getElementById('confirmation').style.display = 'block';
+    });
+  </script>
+</body>
+</html>

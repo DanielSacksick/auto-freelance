@@ -4,8 +4,9 @@ An automated pipeline for applying to freelance missions. It scans FreeWork,
 Freelance-Informatique and Freelancermap (optionally Upwork and LinkedIn),
 scores every posting against your own profile, writes a personalized,
 non-generic cover letter for it with an LLM, and auto-submits the ones worth
-sending on the three platforms that support it via Playwright — with every
-other match prepared as a draft you send by hand.
+sending on the four platforms that support it via Playwright (LinkedIn only
+via Easy Apply) — with every other match prepared as a draft you send by
+hand.
 
 Nothing about you ships in this repo. Your rate, skills, bio and past
 projects live in a `config.yml` you generate locally (gitignored); the
@@ -46,6 +47,7 @@ A real browser window opens, you log in yourself, and the session is saved:
 python -m job_scanner.submission.playwright --export freework
 python -m job_scanner.submission.playwright --export freelance-informatique
 python -m job_scanner.submission.playwright --export freelancermap
+python -m job_scanner.submission.playwright --export linkedin
 ```
 
 ### Method 2: Cookie file import (alternative)
@@ -59,6 +61,7 @@ Export your cookies from each platform using the Chrome extension
    - FreeWork: `www.free-work.com_cookies.txt`
    - Freelance-Informatique: `www.freelance-informatique.fr_cookies.txt`
    - Freelancermap: `www.freelancermap.com_cookies.txt`
+   - LinkedIn: `www.linkedin.com_cookies.txt`
 4. Run the import script:
 
 ```bash

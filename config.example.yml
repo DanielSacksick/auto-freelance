@@ -86,10 +86,14 @@ conditions:
 # Known platform keys: freework, freelance-informatique, freelancermap,
 # upwork, linkedin.
 #
-# Only freework, freelance-informatique and freelancermap support automatic
-# Playwright submission today. Upwork and LinkedIn can be scanned, scored and
-# drafted, but applying stays manual (Upwork "Connects" are paid per
-# application; LinkedIn has no reliable form mapper).
+# freework, freelance-informatique, freelancermap and linkedin support
+# automatic Playwright submission. Upwork can be scanned, scored and drafted,
+# but applying stays manual ("Connects" are paid per application). LinkedIn
+# only auto-submits via Easy Apply (never the external "Apply" button) and
+# abandons cleanly on any screening question it can't answer without
+# guessing — see job_scanner/submission/forms/linkedin.py. Optional
+# AUTOFREELANCE_PHONE / AUTOFREELANCE_CV_PATH env vars (see .env.example) let
+# it fill phone number and attach a CV during Easy Apply.
 # ---------------------------------------------------------------------------
 platforms:
   freework:
@@ -111,7 +115,9 @@ platforms:
     # cost a Connect. Omit for no cap.
     daily_quota: 5
   linkedin:
-    # Disabled by default: no auto-submit support, scan-only, noisier signal.
+    # Disabled by default: requires an exported LinkedIn session (see
+    # `python -m job_scanner.submission.playwright --export linkedin`) and
+    # carries more account-risk than the other platforms. Enable deliberately.
     enabled: false
     language: "en"
 

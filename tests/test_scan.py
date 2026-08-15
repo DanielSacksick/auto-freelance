@@ -15,12 +15,17 @@ freework and freelance-informatique get full parsing assertions since their
 formats are simple enough to construct exactly (a decoded devalue payload,
 and static HTML with the expected CSS hooks). freelancermap gets a full
 assertion too (its React-component JSON payload is likewise reproducible).
-linkedin and upwork are deliberately smoke-tested at construction time only:
-LinkedInJobsSource.fetch() always calls out to Jina Reader over a real
-`urllib.request` regardless of the injected fetcher, and UpworkSource talks
-GraphQL through a client that needs real credentials — actually invoking
-either .fetch() here would mean a real network call, which the project's own
+
+linkedin and upwork are deliberately smoke-tested only: LinkedInJobsSource
+talks to LinkedIn through a real Playwright browser (see
+job_scanner/sources/linkedin.py), and UpworkSource talks GraphQL through a
+client that needs real credentials — actually driving either .fetch() here
+would mean a real network call / browser launch, which the project's own
 testing convention (see CLAUDE.md / job_scanner/submission/tests/) forbids.
+LinkedInJobsSource does gate .fetch() on an exported session
+(job_scanner.submission.sessions.has_session) *before* touching Playwright at
+all, so calling .fetch() against an empty, isolated session_dir is safe and
+offline — that's the one real assertion we can make without a browser.
 """
 
 from __future__ import annotations
@@ -236,18 +241,29 @@ def test_freelancermap_query_not_applied_returns_empty_list_without_raising():
     assert offers == []
 
 
-# -- LinkedIn / Upwork: construction-only smoke tests ------------------------
+# -- LinkedIn / Upwork: construction-only (or session-gated) smoke tests -----
 #
-# Both sources bypass the injected Fetcher for their real transport (Jina
-# Reader over urllib for LinkedIn, an authenticated GraphQL client for
-# Upwork) — calling .fetch() here would mean a real network call, which is
-# out of bounds for this offline suite. We only check that constructing the
-# source (as scan.py does) doesn't require network access or raise.
+# Both sources bypass the injected Fetcher for their real transport (a
+# Playwright browser with an authenticated session for LinkedIn, an
+# authenticated GraphQL client for Upwork) — driving a real .fetch() would
+# mean a real browser launch / network call, which is out of bounds for this
+# offline suite. We only check that constructing the source (as scan.py
+# does) doesn't require network access or raise.
 
 
 def test_linkedin_source_is_constructible_without_network():
     source = LinkedInJobsSource()
     assert source.key == "linkedin"
+
+
+def test_linkedin_fetch_without_a_session_returns_empty_and_stays_offline(tmp_path):
+    """No session exported for "linkedin" -> .fetch() must short-circuit on
+    sessions.has_session() before ever importing/launching Playwright."""
+    source = LinkedInJobsSource(session_dir=tmp_path)
+
+    offers = source.fetch(SearchCriteria(query="python", max_pages=1))
+
+    assert offers == []
 
 
 def test_upwork_source_is_constructible_without_a_live_client():
