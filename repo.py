@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS offers (
 );
 CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(status);
 CREATE INDEX IF NOT EXISTS idx_offers_fit_score ON offers(fit_score);
+
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    platforms TEXT NOT NULL DEFAULT '[]',
+    offers_found INTEGER DEFAULT 0,
+    offers_scored INTEGER DEFAULT 0,
+    offers_drafted INTEGER DEFAULT 0,
+    offers_submitted INTEGER DEFAULT 0,
+    offers_applied INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'running',
+    details TEXT NOT NULL DEFAULT '{}'
+);
 """
 
 
@@ -195,6 +209,66 @@ class SqliteRepo:
         )
         self._conn.commit()
         logger.info("repo: %s/%s → applied", source, external_id)
+
+    # -- Historisation des runs ------------------------------------------------
+
+    def create_run(self, platforms: Optional[List[str]] = None) -> int:
+        """Crée un enregistrement de run et rend son id."""
+        now = _now_iso()
+        cursor = self._conn.execute(
+            "INSERT INTO runs (started_at, platforms, status) VALUES (?, ?, 'running')",
+            (now, json.dumps(platforms or [], ensure_ascii=False)),
+        )
+        self._conn.commit()
+        return cursor.lastrowid
+
+    def finish_run(
+        self,
+        run_id: int,
+        status: str = "completed",
+        offers_found: int = 0,
+        offers_scored: int = 0,
+        offers_drafted: int = 0,
+        offers_submitted: int = 0,
+        offers_applied: int = 0,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Met a jour un run avec ses resultats finaux."""
+        now = _now_iso()
+        self._conn.execute(
+            "UPDATE runs SET finished_at = ?, status = ?, offers_found = ?, "
+            "offers_scored = ?, offers_drafted = ?, offers_submitted = ?, "
+            "offers_applied = ?, details = ? WHERE id = ?",
+            (
+                now, status, offers_found, offers_scored, offers_drafted,
+                offers_submitted, offers_applied,
+                json.dumps(details or {}, default=str, ensure_ascii=False),
+                run_id,
+            ),
+        )
+        self._conn.commit()
+
+    def get_last_runs(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Rend les N derniers runs, du plus recent au plus ancien."""
+        rows = self._conn.execute(
+            "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        results = []
+        for row in rows:
+            results.append({
+                "id": row["id"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "platforms": json.loads(row["platforms"]) if row["platforms"] else [],
+                "offers_found": row["offers_found"],
+                "offers_scored": row["offers_scored"],
+                "offers_drafted": row["offers_drafted"],
+                "offers_submitted": row["offers_submitted"],
+                "offers_applied": row["offers_applied"],
+                "status": row["status"],
+                "details": json.loads(row["details"]) if row["details"] else {},
+            })
+        return results
 
     def close(self) -> None:
         self._conn.close()

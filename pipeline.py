@@ -44,6 +44,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--submit-only", action="store_true",
         help="soumet uniquement les offres déjà rédigées en attente (pas de scan/score/draft)",
     )
+    parser.add_argument(
+        "--draft-only", action="store_true",
+        help="scan + score + persist + draft, sans soumission ni notification (pour soumission browser externe)",
+    )
+    parser.add_argument(
+        "--export-pending", action="store_true",
+        help="après le run, exporte les offres prêtes à soumettre en JSON sur stdout",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -59,6 +67,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.submit_only:
         return _run_submit_only(config)
+
+    if args.draft_only:
+        return _run_draft_only(config, export_pending=args.export_pending)
 
     # 1. Scan --------------------------------------------------------------
     logger.info("\n📡 Phase 1 — Scan des plateformes")
@@ -127,6 +138,106 @@ def main(argv: Optional[List[str]] = None) -> int:
         repo.close()
 
     return 1 if pipeline_failed else 0
+
+
+def _run_draft_only(config: AppConfig, export_pending: bool = False) -> int:
+    """`--draft-only` : scan + score + persist + draft, sans soumission."""
+    start = datetime.now()
+    repo = SqliteRepo()
+    run_id = repo.create_run(platforms=config.enabled_platforms())
+    try:
+        # 1. Scan
+        logger.info("\n📡 Phase 1 — Scan des plateformes")
+        offers = run_scan(config)
+        logger.info("  📦 %d offre(s) trouvée(s)", len(offers))
+
+        # 2. Score
+        logger.info("\n📊 Phase 2 — Scoring")
+        scored = score_offers(offers, config, dry_run=False)
+        logger.info("  🏆 %d offre(s) au-dessus du seuil", len(scored))
+
+        # 3. Persist
+        logger.info("\n💾 Phase 3 — Persistance")
+        persisted = repo.record_scan(offers)
+        logger.info(
+            "  %d nouvelle(s), %d mise(s) à jour, %d déjà vue(s)",
+            persisted["new"], persisted["updated"], persisted["seen"],
+        )
+        if scored:
+            score_dicts = [
+                offer_to_dict(item["offer"], fit_score=item["score"], fit_reasons=item["reasons"])
+                for item in scored
+            ]
+            repo.record_scan(score_dicts)
+
+        # 4. Draft
+        logger.info("\n✍️ Phase 4 — Rédaction des candidatures")
+        drafted = draft_offers(scored, config)
+        logger.info("  %d candidature(s) rédigée(s)", len(drafted))
+        if drafted:
+            draft_dicts = [
+                offer_to_dict(
+                    item["offer"],
+                    fit_score=item["score"],
+                    fit_reasons=item["reasons"],
+                    draft_body=item["draft_body"],
+                    draft_model=item.get("draft_model", "unknown"),
+                )
+                for item in drafted
+            ]
+            repo.record_scan(draft_dicts)
+
+        # Rapport
+        logger.info("\n" + "=" * 40)
+        logger.info("✅ --draft-only terminé")
+        logger.info("  📡  Offres scannées : %d", len(offers))
+        logger.info("  📊  Au-dessus du seuil : %d", len(scored))
+        logger.info("  ✍️   Candidatures rédigées : %d", len(drafted))
+        logger.info("  ⏭️   Soumission différée (mode browser externe)")
+        logger.info("=" * 40)
+
+        repo.finish_run(
+            run_id,
+            status="completed",
+            offers_found=len(offers),
+            offers_scored=len(scored),
+            offers_drafted=len(drafted),
+        )
+
+        if export_pending:
+            _export_pending_json(repo)
+
+        return 0
+    except Exception as exc:
+        repo.finish_run(run_id, status="failed", details={"error": str(exc)})
+        raise
+    finally:
+        repo.close()
+
+
+def _export_pending_json(repo: SqliteRepo) -> None:
+    """Exporte les offres prêtes à soumettre en JSON sur stdout."""
+    import json as _json
+    ready = repo.offers_ready_to_submit()
+    export = []
+    for item in ready:
+        offer = item["offer"]
+        export.append({
+            "source": offer.source,
+            "external_id": offer.external_id,
+            "title": offer.title,
+            "company": offer.company,
+            "url": offer.url,
+            "draft_body": item.get("draft_body", ""),
+            "fit_score": item.get("score"),
+            "daily_rate_min": offer.daily_rate_min,
+            "daily_rate_max": offer.daily_rate_max,
+            "remote_mode": offer.remote_mode,
+            "location": offer.location,
+        })
+    # Print JSON to stdout (separate from logging which goes to stderr)
+    import sys
+    print(_json.dumps(export, ensure_ascii=False, indent=2), file=sys.stdout)
 
 
 def _run_submit_only(config: AppConfig) -> int:
