@@ -48,7 +48,7 @@ MIN_DRAFT_CHARS = 900
 MAX_DRAFT_CHARS = 2400
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "anthropic/claude-3.5-sonnet"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_TEMPERATURE = 0.6
 DEFAULT_MAX_TOKENS = 1200
 DEFAULT_TIMEOUT = 60
@@ -124,28 +124,38 @@ class ApplicationWriter:
         prompt = self._build_user_prompt(offer, matched_skills)
         cleaned = self._attempt(prompt, offer.title)
         if cleaned is None:
-            return None
+            logger.info("drafting: nouvelle tentative après échec LLM pour \"%s\"", offer.title)
+            cleaned = self._attempt(prompt + "\n\nSois plus concis.", offer.title)
+            if cleaned is None:
+                return None
 
         problem = validate_draft(cleaned, self.language)
         if problem is None:
             return Draft(body=cleaned, model=self._model_label)
 
-        # A length overrun is worth a second pass: better a second attempt
+        # A length overrun or empty response is worth a second pass: better a second attempt
         # than no draft at all. Other reasons (leak, empty field) are not
         # negotiable — no draft beats a questionable one.
-        if not problem.startswith("trop long"):
+        if not (problem.startswith("trop long") or problem.startswith("trop court")):
             logger.warning("drafting: rejected on \"%s\" — %s", offer.title, problem)
             return None
 
-        logger.info("drafting: \"%s\" %s, second pass", offer.title, problem)
-        retry = self._attempt(
-            prompt
-            + "\n\n"
-            + self._pack.retry_template.format(
-                length=len(cleaned), budget=MAX_DRAFT_CHARS - 500
-            ),
-            offer.title,
-        )
+        if problem.startswith("trop court"):
+            logger.info("drafting: \"%s\" %s, retry with higher temperature", offer.title, problem)
+            retry = self._attempt(
+                prompt + "\n\nSois plus détaillé et complet. Écris au moins 500 caractères.",
+                offer.title,
+            )
+        else:
+            logger.info("drafting: \"%s\" %s, second pass (shorter)", offer.title, problem)
+            retry = self._attempt(
+                prompt
+                + "\n\n"
+                + self._pack.retry_template.format(
+                    length=len(cleaned), budget=MAX_DRAFT_CHARS - 500
+                ),
+                offer.title,
+            )
         if retry is None:
             return None
 
@@ -282,6 +292,7 @@ def default_llm_caller(
             ],
             "temperature": temperature,
             "max_tokens": DEFAULT_MAX_TOKENS,
+            "reasoning": {"exclude": True},
         }
         headers = {
             "Authorization": f"Bearer {api_key}",

@@ -21,7 +21,7 @@ load_dotenv()
 
 from config import AppConfig, load_config
 from draft import draft_offers
-from notify import notify
+from notify import notify, notify_submission_results
 from repo import SqliteRepo, offer_to_dict
 from scan import run_scan
 from score import score_offers
@@ -92,7 +92,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         if args.scan_only:
             logger.info("\n🏁 Mode scan-only : pas de rédaction, pas de soumission")
-            _final_report(offers, scored, drafted=[], submitted=[], notify_report=None)
+            _final_report(offers, scored, drafted=[], submitted=[], notify_report=None, scan_only=True)
             return 0
 
         # 4. Draft ---------------------------------------------------------
@@ -116,16 +116,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.info("\n🚀 Phase 5 — Soumission automatique")
         submitted = submit_offers(drafted, config, dry_run=False)
         applied_count = _mark_applied(repo, submitted)
+        notify_submission_results(config, submitted)
 
         # 6. Notify ----------------------------------------------------------
         logger.info("\n📨 Phase 6 — Notification")
         notify_report = notify(repo, config, min_score=config.scoring.min_score_for_draft)
 
-        _final_report(offers, scored, drafted, submitted, notify_report, applied_count)
+        pipeline_failed = _final_report(offers, scored, drafted, submitted, notify_report, applied_count)
     finally:
         repo.close()
 
-    return 0
+    return 1 if pipeline_failed else 0
 
 
 def _run_submit_only(config: AppConfig) -> int:
@@ -138,13 +139,24 @@ def _run_submit_only(config: AppConfig) -> int:
 
         submitted = submit_offers(ready, config, dry_run=False)
         applied_count = _mark_applied(repo, submitted)
+        notify_submission_results(config, submitted)
+        attempted = sum(1 for i in submitted if i.get("submission"))
+        failed = attempted > 0 and applied_count == 0
 
         logger.info("\n" + "=" * 40)
-        logger.info("✅ --submit-only terminé")
-        logger.info("  🚀  Tentatives de soumission : %d", sum(1 for i in submitted if i.get("submission")))
+        logger.info("✅ --submit-only terminé" if not failed else "❌ --submit-only terminé — 0 candidature confirmée")
+        logger.info("  🚀  Tentatives de soumission : %d", attempted)
         logger.info("  ✅  Confirmées : %d", applied_count)
+        if failed:
+            reasons = sorted({
+                i["submission"].mode for i in submitted
+                if i.get("submission") is not None and not i["submission"].submitted
+            })
+            logger.info("  ❌  0 soumise sur %d tentative(s) — raison(s) : %s", attempted, ", ".join(reasons) or "inconnue")
+        elif attempted == 0:
+            logger.info("  ⏭️  0 soumise — aucune offre prête à soumettre")
         logger.info("=" * 40)
-        return 0
+        return 1 if failed else 0
     finally:
         repo.close()
 
@@ -180,17 +192,45 @@ def _final_report(
     submitted: List[Dict[str, Any]],
     notify_report: Optional[Dict[str, Any]],
     applied_count: int = 0,
-) -> None:
+    scan_only: bool = False,
+) -> bool:
+    """Affiche le rapport final et rend True si le run doit être traité comme
+    un échec métier (des candidatures ont été tentées et AUCUNE n'a abouti),
+    jamais silencieusement "ok" faute d'avoir vérifié la vraie sortie."""
     attempted = sum(1 for item in submitted if item.get("submission") is not None)
+    failures = [
+        item for item in submitted
+        if item.get("submission") is not None and not item["submission"].submitted
+    ]
+    pipeline_failed = attempted > 0 and applied_count == 0
+
     logger.info("\n" + "=" * 40)
-    logger.info("✅ Pipeline terminé")
+    logger.info("✅ Pipeline terminé" if not pipeline_failed else "❌ Pipeline terminé — 0 candidature confirmée")
     logger.info("  📡  Offres scannées : %d", len(offers))
     logger.info("  📊  Au-dessus du seuil : %d", len(scored))
     logger.info("  ✍️   Candidatures rédigées : %d", len(drafted))
     logger.info("  🚀  Tentatives de soumission : %d (dont %d confirmée(s))", attempted, applied_count)
+
+    if scan_only:
+        logger.info("  🏁  Mode scan-only : rédaction et soumission volontairement sautées")
+    elif attempted == 0:
+        if drafted:
+            logger.info("  ⏭️  0 soumise — aucune plateforme auto-submit-eligible ou quota atteint pour les %d offre(s) rédigée(s)", len(drafted))
+        elif scored:
+            logger.info("  ⏭️  0 soumise — %d offre(s) au-dessus du seuil mais aucune rédaction produite", len(scored))
+        else:
+            logger.info("  ⏭️  0 soumise — aucune offre au-dessus du seuil aujourd'hui (pas un échec)")
+    elif pipeline_failed:
+        reasons = sorted({item["submission"].mode for item in failures})
+        logger.info("  ❌  0 soumise sur %d tentative(s) — raison(s) : %s", attempted, ", ".join(reasons) or "inconnue")
+        for item in failures[:5]:
+            title = (getattr(item["offer"], "title", "") or "?")[:60]
+            logger.info("      · %s — %s", title, item["submission"].text)
+
     if notify_report is not None:
         logger.info("  📨  Notifications envoyées : %d", notify_report.get("sent", 0))
     logger.info("=" * 40)
+    return pipeline_failed
 
 
 if __name__ == "__main__":

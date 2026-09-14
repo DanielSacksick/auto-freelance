@@ -48,6 +48,8 @@ SOURCE_DOMAINS = {
     "freelance-informatique": "freelance-informatique.fr",
     "freelancermap": "freelancermap.com",
     "linkedin": "linkedin.com",
+    "indeed": "indeed.com",
+    "wttj": "welcometothejungle.com",
 }
 
 

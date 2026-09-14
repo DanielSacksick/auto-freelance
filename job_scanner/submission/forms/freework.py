@@ -93,14 +93,25 @@ class FreeWorkForm(FormMapper):
 
     def find_apply_button(self, page: Any) -> Optional[Any]:
         """Le bouton Postuler, en préférant la variante visible (hydratée).
-        Fallback : clic JS si le bouton est dans le DOM mais pas visible (SPA Nuxt)."""
+        Free-Work a souvent deux boutons « Postuler » : un visible (desktop)
+        et un caché (mobile). On prend d'abord un bouton visible, sinon
+        le premier trouvé (fallback pour les SPA Nuxt sans doublon)."""
         for selector in self.apply_button_selectors:
-            locator = page.locator(selector).first
+            all_buttons = page.locator(selector)
+            count = all_buttons.count()
+            if count == 0:
+                continue
+            # Privilégier un bouton visible s'il y a plusieurs occurrences
+            for i in range(count):
+                try:
+                    btn = all_buttons.nth(i)
+                    if btn.is_visible():
+                        return btn
+                except Exception:
+                    continue
+            # Fallback : premier de la liste (même invisible)
             try:
-                # count() gère les sélecteurs Playwright (:has-text) et
-                # retourne les éléments dans le DOM même invisibles.
-                if locator.count():
-                    return locator
+                return all_buttons.first
             except Exception:
                 continue
         return None

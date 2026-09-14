@@ -11,6 +11,7 @@ moins un canal), l'offre est marquée notifiée via `repo.mark_notified()`.
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 from typing import Any, Dict, List
@@ -62,13 +63,60 @@ def notify(repo: Any, config: Any, min_score: float) -> Dict[str, Any]:
                 logger.warning("notify: envoi Telegram impossible (%s)", exc)
 
     if delivered_ids:
-        repo.mark_notified(sorted(delivered_ids))
+        # Ne marquer comme notifié QUE si Telegram a réussi.
+        # La console seule ne compte pas — sinon on perd les offres pour Telegram.
+        if "telegram" in channels_used or not config.notifications.telegram_enabled:
+            repo.mark_notified(sorted(delivered_ids))
 
     return {
         "sent": len(delivered_ids),
         "failed": len(offers) - len(delivered_ids),
         "channels": channels_used,
     }
+
+
+def notify_submission_results(config: Any, submitted: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Envoie sur Telegram le résultat des tentatives de soumission automatique
+    (Phase 5) : confirmées et non confirmées, avec la raison de chaque échec.
+
+    Sans ce rapport, une soumission "cliquée mais non confirmée" — vue par
+    `submission/playwright.py::_run_submission()` (`mode="error"`, raison
+    `no_success_proof`) — n'existe que dans les logs et ne remonte jamais à
+    Dan. `submitted` est la sortie de `submit.py::submit_offers()` : chaque
+    élément porte `offer` et `submission` (`SubmissionResult` ou `None` si la
+    plateforme n'était pas auto-submit-eligible, exclue ici).
+    """
+    attempts = [item for item in submitted if item.get("submission") is not None]
+    if not attempts:
+        return {"sent": False, "confirmed": 0, "unconfirmed": 0}
+
+    if not config.notifications.telegram_enabled:
+        return {"sent": False, "confirmed": 0, "unconfirmed": 0}
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        logger.warning(
+            "notify: rapport de soumission — TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID "
+            "absent de l'environnement, rapport non envoyé"
+        )
+        return {"sent": False, "confirmed": 0, "unconfirmed": 0}
+
+    confirmed = [item for item in attempts if item["submission"].submitted]
+    unconfirmed = [item for item in attempts if not item["submission"].submitted]
+
+    lines = ["🚀 <b>Soumissions automatiques</b>"]
+    for item in confirmed:
+        title = html.escape((getattr(item["offer"], "title", "") or "?")[:60])
+        lines.append(f"✅ {title}")
+    for item in unconfirmed:
+        title = html.escape((getattr(item["offer"], "title", "") or "?")[:60])
+        reason = html.escape((item["submission"].text or "raison inconnue")[:150])
+        lines.append(f"⚠️ {title} — {reason}")
+
+    telegram_sender.send_text(token, chat_id, "\n".join(lines))
+    return {"sent": True, "confirmed": len(confirmed), "unconfirmed": len(unconfirmed)}
 
 
 def _print_console(offers: List[Dict[str, Any]]) -> None:

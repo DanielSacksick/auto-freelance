@@ -136,14 +136,22 @@ def submit(source: str, url: str, body: str, *,
         )
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless)
+        # --disable-blink-features=AutomationControlled : sans ce flag,
+        # Chromium expose navigator.webdriver=true et certains en-têtes
+        # d'automatisation, ce qui suffit à déclencher Cloudflare/anti-bot
+        # (constaté sur Indeed — voir SESSION_REQUIREMENTS.md). Un
+        # user-agent Chrome desktop réaliste seul ne suffit pas.
+        browser = pw.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         try:
             state = sessions.load_storage_state(source, session_dir_path)
             context = browser.new_context(
                 storage_state=state,
                 user_agent=("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                             "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/126.0.0.0 Safari/537.36"),
+                            "Chrome/131.0.0.0 Safari/537.36"),
                 locale="fr-FR" if source != "freelancermap" else "en-US",
             )
             page = context.new_page()
@@ -156,8 +164,11 @@ def _run_submission(page: Any, mapper: FormMapper, url: str, body: str,
                     *, dry_run: bool) -> SubmissionResult:
     """Exécute le cycle complet sur une page ouverte."""
     try:
-        mapper.prepare(page)
+        # goto_application() d'abord : prepare() ferme des banners (cookies,
+        # consentement) qui n'existent qu'une fois la page cible chargée —
+        # l'appeler avant navigation agirait sur une page vide (about:blank).
         mapper.goto_application(page, url)
+        mapper.prepare(page)
         _pause()
     except Exception as exc:
         return SubmissionResult(

@@ -16,14 +16,26 @@ conditions réelles (août 2026) :
 Le mapper navigue donc directement vers l'URL de candidature construite depuis
 la fiche mission. La preuve de succès est un texte de confirmation post-envoi
 (« Votre candidature a été envoyée », « transmise au client »…).
+
+**Changement DOM constaté (vérifié en conditions réelles, 01/09/2026)** : le
+CTA « Postuler » n'est plus un `<a href="/candidature-…">` mais un
+`<span class="btn-postuler" data-obf="<base64 du chemin>">` — le chemin de
+candidature est encodé en base64 dans `data-obf`, probablement pour gêner le
+scraping naïf. Cliquer le span déclenche un décodage JS côté client, pas
+toujours fiable en automatisation headless ; le mapper décode donc lui-même
+`data-obf` et navigue directement vers le chemin obtenu — plus robuste qu'un
+clic, et cohérent avec le fait que `goto_application` sait déjà ouvrir un
+chemin `/candidature-…` directement.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 import re
 from typing import Any, Dict, Optional
-from urllib.parse import quote, urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse
 
 from job_scanner.submission.forms.base import FormMapper
 from job_scanner.submission.forms import register
@@ -40,9 +52,13 @@ class FreelanceInfoForm(FormMapper):
 
     key = "freelance-informatique"
 
-    # Sur la fiche mission, le CTA « Postuler » est un lien (a.btn…).
+    # Sur la fiche mission, le CTA « Postuler » est soit un lien direct
+    # (a.btn…, ancien DOM), soit un span dont le chemin est encodé en base64
+    # dans data-obf (DOM constaté depuis le 01/09/2026, voir docstring module).
     apply_button_selectors = (
         "a[href*='/candidature-']",
+        "span.btn-postuler[data-obf]",
+        "[data-obf]",
         "a:has-text('Postuler')",
     )
     message_selectors = (
@@ -99,14 +115,22 @@ class FreelanceInfoForm(FormMapper):
         for selector in self.apply_button_selectors:
             locator = page.locator(selector).first
             try:
-                if locator.count():
-                    href = locator.get_attribute("href")
-                    if href and "/candidature-" in href:
-                        # Relatif à l'origine courante (jamais un domaine en dur :
-                        # la fiche et le formulaire vivent sur le même site).
-                        target = urljoin(page.url, href)
-                        page.goto(target, wait_until="domcontentloaded", timeout=45000)
-                        return
+                if not locator.count():
+                    continue
+                target_path = None
+                href = locator.get_attribute("href")
+                if href and "/candidature-" in href:
+                    target_path = href
+                else:
+                    obf = locator.get_attribute("data-obf")
+                    if obf:
+                        target_path = _decode_obf(obf)
+                if target_path and "/candidature-" in target_path:
+                    # Relatif à l'origine courante (jamais un domaine en dur :
+                    # la fiche et le formulaire vivent sur le même site).
+                    target = urljoin(page.url, target_path)
+                    page.goto(target, wait_until="domcontentloaded", timeout=45000)
+                    return
             except Exception:
                 continue
         logger.info("freelance-info: pas de lien candidature trouvé sur la fiche")
@@ -125,4 +149,14 @@ class FreelanceInfoForm(FormMapper):
         for text in self.SUCCESS_TEXTS:
             if text in body.lower():
                 return {"type": "text", "value": text}
+        return None
+
+
+def _decode_obf(value: str) -> Optional[str]:
+    """Décode un attribut `data-obf` (chemin encodé en base64). Rend None sur
+    une valeur invalide plutôt que de lever — le DOM d'un site tiers peut
+    changer d'encodage sans prévenir, ce n'est jamais une raison de planter."""
+    try:
+        return base64.b64decode(value).decode("utf-8")
+    except (binascii.Error, ValueError, UnicodeDecodeError):
         return None

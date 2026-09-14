@@ -111,3 +111,49 @@ def test_normalize_typography_replaces_em_dash():
 def test_normalize_typography_is_a_noop_on_clean_text():
     text = "Une phrase tout à fait normale, sans tiret cadratin."
     assert normalize_typography(text) == text
+
+
+def _make_offer(**overrides):
+    from job_scanner.models import RawOffer
+
+    fields = dict(
+        source="freework", external_id="1", url="https://example.test/1",
+        title="Full Stack Developer", description="Une mission de développement.",
+    )
+    fields.update(overrides)
+    return RawOffer(**fields)
+
+
+def test_write_retries_once_after_llm_failure():
+    """One LLM transport failure should not sink the draft: a single retry,
+    with a slightly different prompt, gets a second chance."""
+    calls = []
+
+    def flaky_llm(system: str, user: str) -> str:
+        calls.append(user)
+        if len(calls) == 1:
+            raise RuntimeError("OpenRouter call failed: 503 Service Unavailable")
+        return _clean_fr_draft((MIN_DRAFT_CHARS + MAX_DRAFT_CHARS) // 2)
+
+    application_writer = writer.ApplicationWriter(llm=flaky_llm, language="fr")
+    draft = application_writer.write(_make_offer())
+
+    assert draft is not None
+    assert len(calls) == 2
+    assert "Sois plus concis." in calls[1]
+    assert calls[1].startswith(calls[0])
+
+
+def test_write_gives_up_after_second_llm_failure():
+    """No more than one retry: cost control, per the drafting contract."""
+    calls = []
+
+    def always_fails(system: str, user: str) -> str:
+        calls.append(user)
+        raise RuntimeError("OpenRouter call failed: 500 Internal Server Error")
+
+    application_writer = writer.ApplicationWriter(llm=always_fails, language="fr")
+    draft = application_writer.write(_make_offer())
+
+    assert draft is None
+    assert len(calls) == 2

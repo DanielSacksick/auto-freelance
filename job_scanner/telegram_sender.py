@@ -21,11 +21,19 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 API_ROOT = "https://api.telegram.org/bot{token}/sendMessage"
+
+# Serveur "copier la candidature" : page HTML qui copie le texte au clic.
+# URL de la page « copier » servie par lead-server (get.luteceia.com/clip/<id>).
+# Le lead-server (Docker) lit /workspace/clip-cache/<id>.json monté depuis
+# /data/agents/hermes/workspace/clip-cache/.
+CLIP_BASE_URL = "https://get.luteceia.com/clip"
+CLIP_DATA_DIR = Path("/data/agents/hermes/workspace/clip-cache")
 
 # Telegram plafonne un message à 4096 caractères ; on garde de la marge pour
 # l'en-tête, les échappements HTML et les retours à la ligne.
@@ -59,17 +67,19 @@ def build_message(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     context = " · ".join(bit for bit in (_rate(item), item.get("company"), _conditions(item)) if bit)
 
+    # Stocke la candidature dans le fichier clipboard (pas inline dans le message)
+    _store_candidate(str(opportunity_id), title, body)
+
     text = header
     if context:
         text += f"\n<i>{html.escape(context)}</i>"
-    text += f"\n\n<pre>{html.escape(_truncate(body))}</pre>\n"
-    text += "\n👆 Tape le texte pour le copier"
+    text += "\n\n📋 Candidature prête — bouton « Copier » ci-dessous."
 
     return {
         "parse_mode": "HTML",
         "text": text,
         "disable_web_page_preview": True,
-        "reply_markup": {"inline_keyboard": [_buttons(str(opportunity_id), item.get("url", ""))]},
+        "reply_markup": {"inline_keyboard": [_buttons(str(opportunity_id), item.get("url", ""), body)]},
     }
 
 
@@ -110,14 +120,27 @@ def send_text(token: str, chat_id: str, text: str) -> Optional[int]:
 # -- Interne -------------------------------------------------------------
 
 
-def _buttons(opportunity_id: str, url: str) -> List[Dict[str, Any]]:
-    """« Postuler » est un lien pur : aucun aller-retour serveur au clic."""
+def _buttons(opportunity_id: str, url: str, body: str = "") -> List[Dict[str, Any]]:
+    """Copy natif (250 chars max) + page web pour le texte complet (fallback)."""
     buttons: List[Dict[str, Any]] = []
+    buttons.append({"text": "📋 Copier", "copy_text": {"text": body[:250] + "…" if len(body) > 250 else body}})
+    if len(body) > 250:
+        buttons.append({"text": "📄 Texte complet", "url": f"{CLIP_BASE_URL}/{opportunity_id}"})
     if url:
-        buttons.append({"text": "📄 Postuler", "url": url})
+        buttons.append({"text": "🔗 Postuler", "url": url})
     buttons.append({"text": "✅ Fait", "callback_data": _callback(f"applied:{opportunity_id}")})
     buttons.append({"text": "❌ Passer", "callback_data": _callback(f"skip:{opportunity_id}")})
     return buttons
+
+
+def _store_candidate(opportunity_id: str, title: str, body: str) -> None:
+    """Écrit la candidature dans clip-cache/<id>.json (lu par lead-server)."""
+    try:
+        CLIP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        fpath = CLIP_DATA_DIR / f"{opportunity_id}.json"
+        fpath.write_text(json.dumps({"role": title, "text": _truncate(body)}, ensure_ascii=False))
+    except OSError as exc:
+        logger.warning("clipboard: stockage impossible pour %s (%s)", opportunity_id, exc)
 
 
 def _callback(value: str) -> str:

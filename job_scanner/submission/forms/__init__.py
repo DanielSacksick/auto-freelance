@@ -55,3 +55,5 @@ from job_scanner.submission.forms import freework  # noqa: E402,F401
 from job_scanner.submission.forms import freelance_info  # noqa: E402,F401
 from job_scanner.submission.forms import freelancermap  # noqa: E402,F401
 from job_scanner.submission.forms import linkedin  # noqa: E402,F401
+from job_scanner.submission.forms import indeed  # noqa: E402,F401
+from job_scanner.submission.forms import wttj  # noqa: E402,F401
